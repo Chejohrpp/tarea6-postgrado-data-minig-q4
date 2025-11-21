@@ -124,7 +124,7 @@ Tarea6/
 
 ## Repositorio
 
-[Enlace al repositorio de código](https://github.com/tu-usuario/tu-repositorio)
+[Enlace al repositorio de código](https://github.com/Chejohrpp/tarea6-postgrado-data-minig-q4)
 
 ---
 
