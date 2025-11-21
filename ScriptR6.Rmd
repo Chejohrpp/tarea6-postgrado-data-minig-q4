@@ -1,0 +1,110 @@
+---
+title: "Tarea 6"
+output: html_notebook
+author: "Sergio Rolando Hernandez Perez"
+---
+
+
+
+```{r}
+library(readxl)
+data <- read_excel("base-de-datos-violencia-intrafamiliar-ano-2024_v3.xlsx")
+```
+
+## training test
+
+```{r}
+library(dplyr)
+library(randomForest)
+library(caret)
+library(stringr)
+
+# --- 1. SELECCIÓN Y LIMPIEZA (USANDO SOLO TU DICCIONARIO) ---
+df_real <- data %>% # Asumiendo que 'df_model' es tu carga original del Excel
+  select(
+    HEC_TIPAGRE,      # Para crear el target
+    VIC_EDAD,
+    AGR_EDAD,
+    VIC_SEXO,
+    AGR_SEXO,
+    VIC_GRUPET,       # Etnia
+    HEC_DEPTO,        # Departamento
+    
+    # --- VARIABLES NUEVAS RESCATADAS DEL DICCIONARIO ---
+    VIC_REL_AGR,      # ¡VITAL! Relación con el agresor
+    HEC_AREA,         # Urbano (1) vs Rural (2)
+    VIC_TRABAJA,      # Dependencia económica
+    AGR_TRABAJA,      # Poder económico del agresor
+    VIC_EST_CIV,      # Estado Civil Víctima
+    AGR_EST_CIV       # Estado Civil Agresor
+  ) %>%
+  # Convertir los "99" o "9" (Ignorados) a NA para limpiarlos
+  mutate(across(everything(), ~ na_if(., 99))) %>%
+  mutate(across(everything(), ~ na_if(., 9))) %>%
+  drop_na() 
+
+# --- 2. INGENIERÍA DE VARIABLES (Feature Engineering) ---
+df_final_v3 <- df_real %>%
+  mutate(
+    # --- TARGET BINARIO ---
+    CODIGO_STR = as.character(HEC_TIPAGRE),
+    ES_FISICA = substr(CODIGO_STR, 1, 1) == "1",
+    ES_SEXUAL = substr(CODIGO_STR, 3, 3) == "1",
+    TIPO_BINARIO = as.factor(ifelse(ES_FISICA | ES_SEXUAL, "FISICA_CONTACTO", "PSICO_PATRIMONIAL")),
+    
+    # --- VARIABLE CALCULADA: GAP DE EDAD ---
+    GAP_EDAD = as.numeric(AGR_EDAD) - as.numeric(VIC_EDAD),
+    
+    # --- AGRUPACIÓN DE RELACIÓN (Para ayudar al modelo) ---
+    # Agrupamos en: Pareja (1,2,3) vs Familia (4,5,6,7,8,9)
+    # Según diccionario: 1=Esposo, 2=Conviviente, 3=Ex
+    TIPO_RELACION = as.factor(ifelse(VIC_REL_AGR %in% c(1, 2, 3), "Pareja", "Familia"))
+  ) %>%
+  # Convertir todo lo categórico a Factor
+  mutate(
+    VIC_SEXO = as.factor(VIC_SEXO),
+    AGR_SEXO = as.factor(AGR_SEXO),
+    HEC_AREA = as.factor(HEC_AREA),
+    VIC_TRABAJA = as.factor(VIC_TRABAJA),
+    AGR_TRABAJA = as.factor(AGR_TRABAJA),
+    HEC_DEPTO = as.factor(HEC_DEPTO),
+    VIC_GRUPET = as.factor(VIC_GRUPET)
+  ) %>%
+  # Seleccionamos las finales para el modelo
+  select(
+    TIPO_BINARIO,
+    GAP_EDAD,
+    TIPO_RELACION,   # Variable Nueva Potente
+    HEC_AREA,        # Variable Nueva Potente
+    VIC_SEXO,
+    AGR_SEXO,
+    VIC_TRABAJA,
+    AGR_TRABAJA,
+    HEC_DEPTO,
+    VIC_GRUPET
+  )
+
+# --- 3. ENTRENAMIENTO ---
+set.seed(555)
+index <- sample(1:nrow(df_final_v3), 0.8 * nrow(df_final_v3))
+train_3 <- df_final_v3[index, ]
+test_3  <- df_final_v3[-index, ]
+
+# Entrenamos con cutoff para forzar detección de Física
+rf_v3 <- randomForest(
+  TIPO_BINARIO ~ .,
+  data = train_3,
+  ntree = 400,
+  importance = TRUE,
+  cutoff = c(0.45, 0.55) # Ajuste fino para favorecer sensibilidad
+)
+
+# --- 4. RESULTADOS ---
+print(rf_v3)
+preds_3 <- predict(rf_v3, test_3)
+confusionMatrix(preds_3, test_3$TIPO_BINARIO)
+
+# Ver qué variable ganó ahora
+varImpPlot(rf_v3, main="Importancia Real (Datos VIF 2023)")
+```
+
